@@ -21,8 +21,10 @@ if len(devices) == 0:
 def get_screen():
     for i, device in enumerate(devices):
         image = devices[i].screencap()
-        with open('photos/{}_{}_screen_add_mark.png'.format(i, devices[i].serial), 'wb') as f:
+        save_path = 'photos/{}_{}_screen_postiton.png'.format(i, devices[i].serial)
+        with open(save_path, 'wb') as f:
             f.write(image)
+            print(save_path)
 
 if __name__ == '__main__':
     get_screen()

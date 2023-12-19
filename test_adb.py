@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# import cv2
+import cv2
 import os,time
 import threading
 import subprocess
@@ -8,10 +8,11 @@ import random
 import requests
 from datetime import datetime
 # import pyautogui
-import cv2
+import sys
 import numpy as np
 
 from ppadb.client import Client
+os.system("adb devices")
 adb = Client(host='127.0.0.1', port=5037)
 devices = adb.devices()
 if len(devices) == 0:
@@ -356,6 +357,124 @@ class Auto:
             return ret
         return False
 
+    def mode_color(self, arr, top=3, chanel=3):
+        '''
+        mode color: (1, 1, 0), 11
+        :param arr:
+        :return:
+        '''
+        from collections import Counter
+        arr = arr.reshape((-1, chanel))
+        l = list(map(tuple, arr))
+        # l = list(arr)
+        occurence_count = Counter(l)
+        res = occurence_count.most_common(top)
+        mode = []
+        count = 0
+        for m, c in res:
+            mode.append(list(m))
+            # mode.append(m)
+            count += c
+        return mode, count
+    def check_mode_color(self, img, thrsh=0.03, debug=True, color='red', top=5):
+        '''
+        red 0-10
+        green 50-60
+        orange 0-20
+        white 0-255, 0-255, 180-255
+        :param img:
+        :param lower_h:
+        :param upper_h:
+        :param lower_v:
+        :return:
+        '''
+        if isinstance(color, list):
+            lower_h, upper_h, lower_v, upper_v, lower_s, upper_s = color
+        elif color == 'red':
+            lower_h, upper_h = 0, 10
+            lower_s, upper_s = 0, 255
+            lower_v, upper_v = 0, 150
+
+        elif color == 'green':
+            lower_h, upper_h = 50, 70
+            lower_s, upper_s = 0, 255
+            lower_v, upper_v = 60, 90
+        elif color == 'orange':
+            lower_h, upper_h = 0, 20
+            lower_s, upper_s = 0, 255
+            lower_v, upper_v = 0, 255
+        elif color == 'white':
+            lower_h, upper_h = 0, 255
+            lower_s, upper_s = 180, 255
+            lower_v, upper_v = 0, 255
+        elif color == 'blue':
+            lower_h, upper_h = 80, 120
+            lower_s, upper_s = 0, 255
+            lower_v, upper_v = 0, 150
+        else:
+            lower_h, upper_h = 0, 255
+            lower_s, upper_s = 0, 255
+            lower_v, upper_v = 0, 255
+
+        hsvFrame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsvFrame = np.round(hsvFrame, -1)
+        # hFrame, sFrame, vFrame = np.split(hsvFrame,3, axis=2)
+        # print('hsvFrame:', hFrame)
+        mode, count_mode = self.mode_color(hsvFrame, top, chanel=3)
+
+        mode_arr = np.array([mode], np.uint8)
+        # print(mode_arr)
+
+        lower = np.array([lower_h, lower_s, lower_v], np.uint8)
+        upper = np.array([upper_h, upper_s, upper_v], np.uint8)
+        mask = cv2.inRange(mode_arr, lower, upper)
+
+        if debug:
+            print('mode, count:', mode, count_mode, img.shape, count_mode / (img.shape[0] * img.shape[1]))
+            print('upper:', upper)
+            print('lower:', lower)
+            # print('mask:', mask)
+
+        if np.sum(mask) > top * 255 / 2 and count_mode > img.shape[0] * img.shape[1] * thrsh:
+            return True
+        return False
+    def check_box_color(self, box, color='red', name=0, thrsh=0.5, top=5):
+        '''
+        :return:
+        '''
+        screen = self.screen_capture()
+
+        x1, y1, x2, y2 = box
+        screen_run_botton = screen[y1:y2, x1:x2]
+
+        cv2.imwrite('debugs/check_box_color{}.png'.format(name), screen_run_botton)
+        confirm = self.check_mode_color(screen_run_botton, color=color, thrsh=thrsh, top=top)
+
+        if confirm:
+            print('confirm {}'.format(color))
+        return confirm
+
+    def check_hint(self, box, hint_img, thrsh_and=0.5, thrsh_xor=0.3, name=0, clear_noise=False, binary_thrsh=80):
+
+        screen = self.screen_capture()
+        # hint_img = cv2.imread('photos/hint_binary.png', 0)
+        x1, y1, x2, y2 = box
+        screen_run_botton = screen[y1:y2, x1:x2]
+        if clear_noise:
+            screen_run_botton[25:60, 30:69] = np.zeros((35, 39, 3))
+        gray_img = cv2.cvtColor(screen_run_botton, cv2.COLOR_BGR2GRAY)
+        _, binary_img = cv2.threshold(gray_img, 80, 255, cv2.THRESH_BINARY)
+        print(hint_img.shape, binary_img.shape)
+        xor_img = cv2.bitwise_xor(hint_img, binary_img)
+        and_img = cv2.bitwise_and(hint_img, binary_img)
+        total = np.sum(binary_img)
+        if np.sum(xor_img) < total * thrsh_xor and np.sum(and_img) > total * thrsh_and:
+            # cv2.imwrite('debugs/bitwise_and{}.png'.format(name), and_img)
+            # cv2.imwrite('debugs/bitwise_xor{}.png'.format(name), xor_img)
+            return True
+
+        return False
+
     def find_madi(self, mandi_img, rally_coodinates_dict={}, threshold=0.85):
         '''
         :return:
@@ -383,12 +502,12 @@ class Auto:
         retVal = list(zip(*loc[::-1]))
         # # We want the minimum squared difference
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
+        # print(max_loc, max_val,threshold)
         if max_loc > (0, 0) and max_val>threshold:
             ret = max_loc[0] + mandi_img.shape[1] // 2, max_loc[1] + mandi_img.shape[0] // 2
             name_box = [ret[0] - 175, ret[1] + 95, ret[0] - 90, ret[1] + 130]
             name = image_2_text(screen[name_box[1]:name_box[3], name_box[0]:name_box[2]], l='eng')
-            name = name.replace(' ', '').lower()
+            name = name.replace('|', '').replace(' ', '').lower()
             print('======================================name:', name, max_loc, max_val)
 
             # image = cv2.rectangle(screen, max_loc, (max_loc[0] + mandi_img.shape[1], max_loc[1] + mandi_img.shape[0]),
@@ -399,11 +518,12 @@ class Auto:
         return False, ''
 
 class starts(threading.Thread):
-    def __init__(self, nameLD,file, device_serial):
+    def __init__(self, nameLD,file, device_serial, list_task):
         super().__init__()
         self.nameLD = nameLD
         self.file = file
         self.device = device_serial
+        self.list_task = list_task
     def run(self):
         email = self.file.split("|")[0]
         pwd = self.file.split("|")[1]
@@ -423,7 +543,7 @@ class starts(threading.Thread):
                             d.click(poin[0][0] + w, poin[0][1] + h)
                             break
                     if ret:
-                        d.click(30, 30)
+                        d.click(30, 50)
                         break
                         # poin, w, h = d.find('photos/return.png')
                         # if poin > [(0, 0)] :
@@ -638,11 +758,11 @@ class starts(threading.Thread):
                     print('Exception:', e)
                     return 0
 
-        def find_mandi(d):
+        def find_mandi(d, cost_distance_x=1000, cost_distance_y=200, thrsh=0.8):
             c = 0
             count = 0
-            cost_distance_x = 0
-            cost_distance_y = 50
+            # cost_distance_x = 0
+            # cost_distance_y = 50
             screen_size = d.screen_capture().shape[0]
             screen_size = (screen_size//1000)*1000
             print('screen_size:', screen_size)
@@ -661,29 +781,32 @@ class starts(threading.Thread):
             x_step = 10
             y_c = 0
             y_step = 10
+            count = 0
             while True:
                 ''' move right'''
                 # try:
                 if True:
-                    print('distance x:', x_c*x_step if y_c%2==0 else cost_distance_x - x_c*x_step, 'distance y:', y_c*y_step)
+                    print('distance x:', x_c*x_step if y_c%2==0 else cost_distance_x - x_c*x_step,
+                          'distance y:', y_c*y_step, 'found:', count)
                     x_c += 1
                     ### check ralling exists
                     st_find = time.time()
-                    mandi, name = d.find_madi(mandi_img, rally_coodinates_dict)
-                    print('find time:', time.time() - st_find)
-                    if mandi and name not in ['cap1', 'cap2', 'cap3', 'cap5', 'caps', ]:
+                    mandi, name = d.find_madi(mandi_img, rally_coodinates_dict, thrsh)
+                    # print('find time:', time.time() - st_find)
+                    if mandi and name not in ['cap1', 'cap2', 'cap3', 'cap5', 'caps','cans', ]:
                         ## click mandi
                         d.click(mandi[0], mandi[1])
                         # time.sleep(1)
                         st_find_mark = time.time()
                         mark_point = d.find2(mark_icon)
-                        print('st_find_mark time:', time.time() - st_find_mark)
+                        # print('st_find_mark time:', time.time() - st_find_mark)
 
                         ### click add
                         d.click(mark_point[0], mark_point[1])
                         ### click firm
                         x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['add_botton']
                         d.click((x1+x2)//2, (y1+y2)//2)
+                        count +=1
                     print('a step time:', time.time() - st_find)
 
                     if x_c*x_step > cost_distance_x:
@@ -708,25 +831,172 @@ class starts(threading.Thread):
                 #     print('Exception:', e)
                 #     return 0
 
-        # patrol_function(d, sleep=[1, 4], colors=['org'])
-        # patrol_function(d, sleep=[1, 4], colors=['whi', 'org'])
-        # join_rally_function(d, mode='auto')
-        # wipe_she(d, 15)
-        # say_hi(d, 10)
-        # join_rally_function(d, mode='troop')
-        find_mandi(d)
+        def attact_monster(d):
+            screen_size = d.screen_capture().shape[0]
+            screen_size = (screen_size//1000)*1000
+            print('screen_size:', screen_size)
+            rally_coodinates_dict = {2000: {
+
+                                        'runing_btn1': [530, 415, 601, 463],
+                                        'runing_space': 70 + 5,
+
+                                        'list_mark_btn': [28, 1863, 155, 1964],
+                                        'central_box': [373, 1130, 691, 1300],
+                                        'first_monster': [55, 507, 605, 677],
+                                        'delete_btn': [621, 610, 729, 688],
+                                        'firm_delete_btn': [579, 1358, 853, 1426],
+                                        'cancel_delete_btn': [226, 1358, 497, 1426],
+
+                                        'attack_monster_btn': [131, 943, 306, 1085],
+                                        'occupy_btn': [306, 806, 466, 949],
+                                        'hint1': [164, 858, 203, 896],  # kiếm chéo
+                                        'hint2': [51, 800, 146, 891],  # level box
+                                        'attack_btn_only': [353, 1458, 719, 1525],
+
+                                        'attack_btn': [110, 1768, 474, 1837],
+                                        'war_btn': [595, 1768, 966, 1837],
+                                        'exit_btn': [1000, 577, 1060, 639],
+                                        'attack_btn2': [110, 1938, 474, 2005],
+                                        'war_btn2': [595, 1938, 966, 2005],
+                                        'warning_firm_btn': [577, 1358, 853, 1420],
+                                        'warning_cancel_btn': [226, 3358, 497, 1420],
+
+                                        'run_button': [575, 2219, 971, 2302], 'reset_botton': [120, 2219, 482, 2302],
+                                        'add_1_best': [734, 1759, 753, 1782],
+                                        'troop1': [53, 250, 162, 350],
+                                        'troop2': [183, 250, 285, 350],
+                                        'troop3': [306, 250, 400, 350],
+                                        'troop4': [429, 250, 526, 350],
+                                        'general': [77, 546, 268, 739],
+                                        'wipe_none': [595, 1768, 966, 1837],
+                                                }
+                                    }
+            hint_monster_img = cv2.imread('photos/hint_binary.png', 0)
+            hint_invalid_general_img = cv2.imread('photos/hint_invalid_general_binary.png', 0)
+            hint_monster_img = np.array(hint_monster_img, np.uint8)
+            hint_invalid_general_img = np.array(hint_invalid_general_img, np.uint8)
+
+            troop_valid_number = 3
+            x1, y1, x2, y2 = box = rally_coodinates_dict[screen_size]['runing_btn1']  # blue thresh 0.1 top 5
+            rally_coodinates_dict[screen_size]['check_runing_btn'] = [x1, y1 + (troop_valid_number - 1) * rally_coodinates_dict[screen_size]['runing_space'], x2,
+                   y2 + (troop_valid_number - 1) * rally_coodinates_dict[screen_size]['runing_space']]
+            c = 0
+            while True:
+                # try:
+                x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['check_runing_btn']
+                troop_valid = not d.check_box_color([x1, y1, x2, y2], color='blue', thrsh=0.1)
+                if troop_valid:
+                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['list_mark_btn']
+                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                    if c > 0:
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['delete_btn']
+                        d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['firm_delete_btn']
+                        if d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                            d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                        else:
+                            click_on_x_icon(d)
+                            print('======================done=====================')
+                            print('stop')
+                            break
+                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['first_monster']
+                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['central_box']
+                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_monster_btn']
+                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['hint2']
+                    monster_exists = d.check_hint([x1, y1, x2, y2], hint_monster_img)
+
+                    if monster_exists:
+
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_btn_only']
+                        if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                            x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_btn']
+                            if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                                x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_btn2']
+                                if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                                    c+=1
+                                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['exit_btn']
+                                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                                    continue
+                        d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                        for troopid in ['troop1', 'troop2', 'troop4', ]:
+                            x1, y1, x2, y2 = rally_coodinates_dict[screen_size][troopid]
+                            d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                            # time.sleep(1)
+                            # valid = d.check_general_valid(rally_coodinates_dict)
+
+                            x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['general']
+                            valid = not d.check_hint([x1, y1, x2, y2], hint_invalid_general_img,
+                                                 thrsh_and=0.6, thrsh_xor=0.3, clear_noise=False, binary_thrsh=100)
+                            if valid:
+                                print('troopid', troopid)
+                                break
+                        else:
+                            print('troops not valid')
+                            click_on_x_icon(d)
+
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['run_button']
+                        d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['warning_firm_btn']
+                        warning = d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1)
+                        if warning:
+                            d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                            # x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['run_button']
+                            # d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                        c += 1
+                    else:
+                        c+=1
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['wipe_none']
+                        d.wipe(x1, y1, x2, y2)
+                else:
+                    print('troop_valid:', troop_valid)
+                    time.sleep(30)
+
+        if self.list_task[0]=='patrol':
+            colors = self.list_task[3:] if len(self.list_task)>3 else ['whi', 'org']
+            patrol_function(d, sleep=[int(self.list_task[1]), int(self.list_task[2])], colors=colors)
+            click_on_x_icon(d)
+        elif self.list_task[0]=='rally':
+            mode = self.list_task[1] if len(self.list_task)>1 else 'troop'
+            join_rally_function(d, mode=mode)
+        elif self.list_task[0]=='wipehi':
+            wipe_she(d, 15)
+            say_hi(d, 10)
+            click_on_x_icon(d)
+        elif self.list_task[0]=='wipe':
+            wipe_she(d, 15)
+            click_on_x_icon(d)
+        elif self.list_task[0]=='hi':
+            say_hi(d, 10)
+            click_on_x_icon(d)
+        elif self.list_task[0]=='madi':
+            thrsh = int(self.list_task[3]) if len(self.list_task) > 3 else 0.4
+            cost_distance_y = int(self.list_task[2]) if len(self.list_task) > 2 else 200
+            cost_distance_x = int(self.list_task[1]) if len(self.list_task) > 1 else 500
+            find_mandi(d, cost_distance_x=cost_distance_x, cost_distance_y=cost_distance_y, thrsh=thrsh)
+
+        elif self.list_task[0]=='monster':
+            attact_monster(d)
+
 
         # click_on_x_icon(d)
 
 
-def strew(thread_count=1):
+def strew(thread_count=1, list_param=[]):
     # # GetDevices()
     # for m in [0,1]:
     for m in [0]:
-        threading.Thread(target=main, args=(m,thread_count,)).start()
+        threading.Thread(target=main, args=(m,thread_count,list_param)).start()
 
 
-def main(m, thread_count):
+def main(m, thread_count, list_param):
 
     device_serial = devices[m].serial
     print('device_serial:', device_serial)
@@ -737,7 +1007,7 @@ def main(m, thread_count):
     #     run = starts(m ,mail, device_serial)
     #     run.run()
     mail = tk[0].strip()
-    run = starts(m ,mail, device_serial)
+    run = starts(m ,mail, device_serial, list_param)
     run.run()
     print('==============================done===============================')
 
@@ -750,9 +1020,13 @@ def get_screen():
 
 if __name__ == '__main__':
     # main()
-    strew(thread_count=1)
+    if len(sys.argv) > 1:
+        list_param = sys.argv[1:]
+    strew(thread_count=1, list_param=list_param)
     # get_screen()
 '''
+python test_adb.py patrol 1 4
+python test_adb.py madi 1000 200
 763 320
 774 323
 785 327
