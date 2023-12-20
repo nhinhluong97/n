@@ -831,7 +831,7 @@ class starts(threading.Thread):
                 #     print('Exception:', e)
                 #     return 0
 
-        def attact_monster(d):
+        def attact_monster(d, permiss_warning=True, max_monster=0, marked=False, troop_valid_number=3, troops_list=['troop1', 'troop2', 'troop4', ]):
             screen_size = d.screen_capture().shape[0]
             screen_size = (screen_size//1000)*1000
             print('screen_size:', screen_size)
@@ -851,13 +851,14 @@ class starts(threading.Thread):
                                         'occupy_btn': [306, 806, 466, 949],
                                         'hint1': [164, 858, 203, 896],  # kiếm chéo
                                         'hint2': [51, 800, 146, 891],  # level box
-                                        'attack_btn_only': [353, 1458, 719, 1525],
-
-                                        'attack_btn': [110, 1768, 474, 1837],
+                                        'attack_btn_only': [353, 1458, 719, 1525], # quái thường
+                                        'attack_btn': [110, 1768, 474, 1837], # trùm thường
                                         'war_btn': [595, 1768, 966, 1837],
                                         'exit_btn': [1000, 577, 1060, 639],
-                                        'attack_btn2': [110, 1938, 474, 2005],
+                                        'attack_btn2': [110, 1938, 474, 2005], # trùm sự kiện
                                         'war_btn2': [595, 1938, 966, 2005],
+                                        'attack_btn3': [110, 1458, 474, 1525], ## trùm liên minh
+                                        'war_btn3': [595, 1458, 966, 1525],
                                         'warning_firm_btn': [577, 1358, 853, 1420],
                                         'warning_cancel_btn': [226, 3358, 497, 1420],
 
@@ -876,7 +877,7 @@ class starts(threading.Thread):
             hint_monster_img = np.array(hint_monster_img, np.uint8)
             hint_invalid_general_img = np.array(hint_invalid_general_img, np.uint8)
 
-            troop_valid_number = 3
+            # troop_valid_number = 3
             x1, y1, x2, y2 = box = rally_coodinates_dict[screen_size]['runing_btn1']  # blue thresh 0.1 top 5
             rally_coodinates_dict[screen_size]['check_runing_btn'] = [x1, y1 + (troop_valid_number - 1) * rally_coodinates_dict[screen_size]['runing_space'], x2,
                    y2 + (troop_valid_number - 1) * rally_coodinates_dict[screen_size]['runing_space']]
@@ -886,22 +887,27 @@ class starts(threading.Thread):
                 x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['check_runing_btn']
                 troop_valid = not d.check_box_color([x1, y1, x2, y2], color='blue', thrsh=0.1)
                 if troop_valid:
-                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['list_mark_btn']
-                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
-                    if c > 0:
-                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['delete_btn']
+                    if marked:
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['list_mark_btn']
                         d.click((x1 + x2) // 2, (y1 + y2) // 2)
-
-                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['firm_delete_btn']
-                        if d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                        if c > 0 or (max_monster and c >= max_monster):
+                            x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['delete_btn']
                             d.click((x1 + x2) // 2, (y1 + y2) // 2)
-                        else:
-                            click_on_x_icon(d)
-                            print('======================done=====================')
-                            print('stop')
-                            break
-                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['first_monster']
-                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
+
+                            x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['firm_delete_btn']
+                            if d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                                d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                            else:
+                                click_on_x_icon(d)
+                                print('======================done=====================')
+                                print('stop')
+                                break
+                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['first_monster']
+                        d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                    elif max_monster and c >= max_monster:
+                        print('======================done=====================')
+                        print('stop max', max_monster)
+                        break
                     x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['central_box']
                     d.click((x1 + x2) // 2, (y1 + y2) // 2)
 
@@ -919,13 +925,15 @@ class starts(threading.Thread):
                             if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
                                 x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_btn2']
                                 if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
-                                    c+=1
-                                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['exit_btn']
-                                    d.click((x1 + x2) // 2, (y1 + y2) // 2)
-                                    continue
+                                    x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['attack_btn3']
+                                    if not d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1):
+                                        c+=1
+                                        x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['exit_btn']
+                                        d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                                        continue
                         d.click((x1 + x2) // 2, (y1 + y2) // 2)
 
-                        for troopid in ['troop1', 'troop2', 'troop4', ]:
+                        for troopid in troops_list:
                             x1, y1, x2, y2 = rally_coodinates_dict[screen_size][troopid]
                             d.click((x1 + x2) // 2, (y1 + y2) // 2)
                             # time.sleep(1)
@@ -947,7 +955,10 @@ class starts(threading.Thread):
                         x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['warning_firm_btn']
                         warning = d.check_box_color([x1, y1, x2, y2], color='green', thrsh=0.1)
                         if warning:
-                            d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                            if permiss_warning:
+                                d.click((x1 + x2) // 2, (y1 + y2) // 2)
+                            else:
+                                click_on_x_icon(d)
                             # x1, y1, x2, y2 = rally_coodinates_dict[screen_size]['run_button']
                             # d.click((x1 + x2) // 2, (y1 + y2) // 2)
                         c += 1
@@ -985,6 +996,9 @@ class starts(threading.Thread):
         elif self.list_task[0]=='monster':
             attact_monster(d)
 
+        elif self.list_task[0]=='viking':
+            attact_monster(d, permiss_warning=True, max_monster=0, marked=False, troop_valid_number=3,
+                               troops_list=['troop1', 'troop2', 'troop4', ])
 
         # click_on_x_icon(d)
 
